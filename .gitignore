@@ -1,0 +1,19 @@
+# Python virtual environment
+.env/
+
+# Python cache files
+**/__pycache__/
+
+# Personal keys
+src/keys.py
+src/test_keys.py
+src/test_values.py
+
+# Authorization data
+**/.auth_data.ini
+
+# Output files
+**/output.json
+
+# Temporary files
+**/temp*
