@@ -163,21 +163,25 @@ def main():
 
     # record token request parameters
     config = configparser.ConfigParser()
+    config.read(AUTH_DATA_FILENAME)
     config["TOKEN_REQUEST_PARAMETERS"] = dataclasses.asdict(token_req_params)
     with AUTH_DATA_FILENAME.open("w", encoding="utf-8", newline="\n") as f:
         config.write(f)
 
     if input("Continue? [y](y/n):").lower() not in ["", "y"]:
         return None
-    get_tokens()
+    get_tokens(token_req_params)
 
     return True
 
 
-def get_tokens():
-    config = configparser.ConfigParser()
-    config.read(AUTH_DATA_FILENAME)
-    auth_data = dict(config["TOKEN_REQUEST_PARAMETERS"])
+def get_tokens(token_req_params: TokenRequestParameters | None = None):
+    if token_req_params is None:
+        config = configparser.ConfigParser()
+        config.read(AUTH_DATA_FILENAME)
+        auth_data = dict(config["TOKEN_REQUEST_PARAMETERS"])
+    else:
+        auth_data = dataclasses.asdict(token_req_params)
 
     client_id_and_secret = f"{auth_data["client_id"]}:{CLIENT_SECRET}"
     basic_token = base64.b64encode(client_id_and_secret.encode()).decode()
@@ -193,6 +197,12 @@ def get_tokens():
     )
     print(response.status_code)
     print(response.text)  # str
+    token_resp = json.loads(response.text)
+    config = configparser.ConfigParser()
+    config.read(AUTH_DATA_FILENAME)
+    config["TOKEN_RESPONSE_PARAMETERS"] = token_resp
+    with AUTH_DATA_FILENAME.open("w", encoding="utf-8", newline="\n") as f:
+        config.write(f)
 
 
 def get_tokens_from_refresh_token():
