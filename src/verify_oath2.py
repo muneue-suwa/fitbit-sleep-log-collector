@@ -10,8 +10,10 @@ import dataclasses
 from datetime import datetime
 import queue
 
+# third-party library
 import requests
 
+# my python files
 from httpserver import MyHttpServer
 from settings import AUTH_DATA_FILENAME
 from keys import CLIENT_ID, CLIENT_SECRET
@@ -94,7 +96,7 @@ def main():
     print(f"state = {state}")
 
     my_http_server = MyHttpServer(q=q)
-    redirect_uri = urllib.parse.quote(f"{my_http_server.address}", safe="")
+    redirect_uri = create_encoded_url(my_http_server.address)
 
     # Start http server
     my_http_server.start_server()
@@ -129,7 +131,7 @@ def main():
         code=redirected_code,
     )
 
-    config["MAIN"] = dataclasses.asdict(auth_data)
+    config[TOKEN_REQ_PARAMS] = dataclasses.asdict(auth_data)
     with AUTH_DATA_FILENAME.open("w", encoding="utf-8", newline="\n") as f:
         config.write(f)
 
@@ -143,7 +145,7 @@ def main():
 def get_tokens():
     config = configparser.ConfigParser()
     config.read(AUTH_DATA_FILENAME)
-    auth_data = dict(config["MAIN"])
+    auth_data = dict(config[TOKEN_REQ_PARAMS])
 
     client_id_and_secret = f"{auth_data["client_id"]}:{CLIENT_SECRET}"
     basic_token = base64.b64encode(client_id_and_secret.encode()).decode()
