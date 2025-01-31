@@ -5,10 +5,10 @@ import re
 from pathlib import Path
 import queue
 
-from settings import FIBIT_PATH_PTRN
+from settings import FITBIT_PATH_PTRN
 
 
-FIBIT_CODE_STATE_PTRN = re.compile(r"\?code=(\S+)&state=(\S)")
+FITBIT_CODE_STATE_PTRN = re.compile(r"\?code=(\S+)&state=(\S)")
 
 
 class CustomHTTPRequestHandler(BaseHTTPRequestHandler):
@@ -23,10 +23,10 @@ class CustomHTTPRequestHandler(BaseHTTPRequestHandler):
 
         res_message = "No data"
         request_path = Path(self.path)
-        if request_path.parent == FIBIT_PATH_PTRN:
-            res_message = "is fibit path"
-            if FIBIT_CODE_STATE_PTRN.match(request_path.name):
-                code, state = FIBIT_CODE_STATE_PTRN.sub(
+        if request_path.parent == FITBIT_PATH_PTRN:
+            res_message = "is fitbit path"
+            if FITBIT_CODE_STATE_PTRN.match(request_path.name):
+                code, state = FITBIT_CODE_STATE_PTRN.sub(
                     r"\1&\2", request_path.name
                 ).split("&")
                 res_message = f"code = {code}, state = {state}"
