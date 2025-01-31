@@ -16,7 +16,7 @@ import requests
 # my python files
 from httpserver import MyHttpServer
 from settings import AUTH_DATA_FILENAME
-from keys import CLIENT_ID, CLIENT_SECRET
+from keys import CLIENT_ID, CLIENT_SECRET, REDIRECT_URL
 from test_values import REFRESH_TOKEN, ACCESS_TOKEN
 
 
@@ -37,6 +37,19 @@ def base64_url_encode(value: str) -> str:
 def create_random_str(len: int) -> str:
     ALPHANUMERIC_CHARS = string.ascii_letters + string.digits
     return "".join([random.choice(ALPHANUMERIC_CHARS) for _ in range(len)])
+
+
+@dataclasses.dataclass
+class FitbitApplicationInformation:
+    client_id: str
+    client_secret: str
+    redirect_url: str
+    basic_token: str = dataclasses.field(init=False)
+
+    def __post_init__(self):
+        self.basic_token = base64.b64encode(
+            f"{self.client_id}:{self.client_secret}".encode(),
+        ).decode()
 
 
 @dataclasses.dataclass
@@ -93,116 +106,122 @@ def create_encoded_url(url: str) -> str:
     return urllib.parse.quote(url, safe="")
 
 
-class Authorization:
-    def __init__(self):
-        pass
-
-    def generate_pkce(self):
-        pass
+class FitbitAuthorization:
+    def __init__(self, is_debug: bool = False):
+        self.app_info = FitbitApplicationInformation(
+            client_id=CLIENT_ID,
+            client_secret=CLIENT_SECRET,
+            redirect_url=REDIRECT_URL,
+        )
+        self.is_debug = is_debug
 
     def request_authorization(self):
-        pass
+        q = queue.Queue(1)
 
-    def request_token_using_auth_code(self):
-        pass
+        # generate PKCE, Proof Key for Code Exchange
+        pkce_len = 128
+        pkce = ProofKeyForCodeExchange(pkce_len)
+        print(f"code_challenge = {pkce.code_challenge}")
+
+        state_len = 32
+        state = create_random_str(state_len)
+        print(f"state = {state}")
+
+        my_http_server = MyHttpServer(q=q)
+
+        # Start http server
+        my_http_server.start_server()
+
+        auth_req_params = AuthorizationRequestParameters(
+            client_id=self.app_info.client_id,
+            code_challenge=pkce.code_challenge,
+            scope=["sleep", "activity"],
+            state=state,
+            redirect_uri=self.app_info.redirect_url,
+        )
+        AUTH_URL = f"https://www.fitbit.com/oauth2/authorize?{auth_req_params}"
+        print(f"Open {AUTH_URL}\n")
+
+        for i in range(20):
+            print(f"\rtime = {i+1}", end="")
+            if not q.empty():  # Check queue
+                auth_resp = q.get()  # {"code": code, "state": state}
+                print()
+                my_http_server.stop_server(sleep_time=1)
+                break
+            time.sleep(1)
+        else:
+            print()
+            my_http_server.stop_server(sleep_time=1)
+            return None
+
+        if auth_req_params.state != auth_resp["state"]:
+            print(f"state error: redirected_state = {auth_resp["state"]}")
+            return None
+
+        token_req_params = TokenRequestParameters(
+            client_id=auth_req_params.client_id,
+            code_verifier=pkce.code_verifier,
+            redirect_uri=auth_req_params.redirect_uri,
+            code=auth_resp["code"],
+        )
+
+        # record token request parameters
+        config = configparser.ConfigParser()
+        config.read(AUTH_DATA_FILENAME)
+        config["TOKEN_REQUEST_PARAMETERS"] = dataclasses.asdict(
+            token_req_params,
+        )
+        with AUTH_DATA_FILENAME.open("w", encoding="utf-8", newline="\n") as f:
+            config.write(f)
+
+        if input("Continue? [y](y/n):").lower() not in ["", "y"]:
+            return False
+
+        result = self.request_token_using_auth_code(token_req_params)
+
+        return result
+
+    def request_token_using_auth_code(
+        self,
+        token_req_params: TokenRequestParameters | None = None,
+    ) -> bool:
+        if token_req_params is None:
+            config = configparser.ConfigParser()
+            config.read(AUTH_DATA_FILENAME)
+            if "TOKEN_REQUEST_PARAMETERS" not in config:
+                print(f"No TOKEN_REQUEST_PARAMETERS in {AUTH_DATA_FILENAME}")
+                return False
+            auth_data = dict(config["TOKEN_REQUEST_PARAMETERS"])
+        else:
+            auth_data = dataclasses.asdict(token_req_params)
+
+        if self.is_debug:
+            print(self.app_info.basic_token)
+
+        response = requests.post(
+            "https://api.fitbit.com/oauth2/token",
+            data=auth_data,
+            headers={
+                "Authorization": f"Basic {self.app_info.basic_token}",
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+        )
+        if self.is_debug:
+            print(response.status_code)
+            print(response.text)  # str
+
+        token_resp = json.loads(response.text)
+        config = configparser.ConfigParser()
+        config.read(AUTH_DATA_FILENAME)
+        config["TOKEN_RESPONSE_PARAMETERS"] = token_resp
+        with AUTH_DATA_FILENAME.open("w", encoding="utf-8", newline="\n") as f:
+            config.write(f)
+
+        return True
 
     def request_token_using_refresh_code(self):
         pass
-
-
-def main():
-    q = queue.Queue(1)
-
-    # PKCE, Proof Key for Code Exchange
-    pkce_len = 128
-    pkce = ProofKeyForCodeExchange(pkce_len)
-    print(f"code_challenge = {pkce.code_challenge}")
-
-    state_len = 32
-    state = create_random_str(state_len)
-    print(f"state = {state}")
-
-    my_http_server = MyHttpServer(q=q)
-
-    # Start http server
-    my_http_server.start_server()
-
-    auth_req_params = AuthorizationRequestParameters(
-        client_id=CLIENT_ID,
-        code_challenge=pkce.code_challenge,
-        scope=["sleep", "activity"],
-        state=state,
-        redirect_uri=my_http_server.address,
-    )
-    AUTH_URL = f"https://www.fitbit.com/oauth2/authorize?{auth_req_params}"
-    print(f"Open {AUTH_URL}\n")
-
-    for i in range(20):
-        print(f"\rtime = {i+1}", end="")
-        if not q.empty():  # Check queue
-            auth_resp = q.get()  # {"code": code, "state": state}
-            print()
-            my_http_server.stop_server(sleep_time=1)
-            break
-        time.sleep(1)
-    else:
-        print()
-        my_http_server.stop_server(sleep_time=1)
-        return None
-
-    if auth_req_params.state != auth_resp["state"]:
-        print(f"state error: redirected_state = {auth_resp["state"]}")
-        return None
-
-    token_req_params = TokenRequestParameters(
-        client_id=auth_req_params.client_id,
-        code_verifier=pkce.code_verifier,
-        redirect_uri=auth_req_params.redirect_uri,
-        code=auth_resp["code"],
-    )
-
-    # record token request parameters
-    config = configparser.ConfigParser()
-    config.read(AUTH_DATA_FILENAME)
-    config["TOKEN_REQUEST_PARAMETERS"] = dataclasses.asdict(token_req_params)
-    with AUTH_DATA_FILENAME.open("w", encoding="utf-8", newline="\n") as f:
-        config.write(f)
-
-    if input("Continue? [y](y/n):").lower() not in ["", "y"]:
-        return None
-    get_tokens(token_req_params)
-
-    return True
-
-
-def get_tokens(token_req_params: TokenRequestParameters | None = None):
-    if token_req_params is None:
-        config = configparser.ConfigParser()
-        config.read(AUTH_DATA_FILENAME)
-        auth_data = dict(config["TOKEN_REQUEST_PARAMETERS"])
-    else:
-        auth_data = dataclasses.asdict(token_req_params)
-
-    client_id_and_secret = f"{auth_data["client_id"]}:{CLIENT_SECRET}"
-    basic_token = base64.b64encode(client_id_and_secret.encode()).decode()
-    print(basic_token)
-
-    response = requests.post(
-        "https://api.fitbit.com/oauth2/token",
-        data=auth_data,
-        headers={
-            "Authorization": f"Basic {basic_token}",
-            "Content-Type": "application/x-www-form-urlencoded",
-        },
-    )
-    print(response.status_code)
-    print(response.text)  # str
-    token_resp = json.loads(response.text)
-    config = configparser.ConfigParser()
-    config.read(AUTH_DATA_FILENAME)
-    config["TOKEN_RESPONSE_PARAMETERS"] = token_resp
-    with AUTH_DATA_FILENAME.open("w", encoding="utf-8", newline="\n") as f:
-        config.write(f)
 
 
 def get_tokens_from_refresh_token():
@@ -252,8 +271,5 @@ def get_sleep_log_by_date_range():
 
 
 if __name__ == "__main__":
-    # from pprint import pprint
-
-    # get_tokens()
-    main()
-    # pprint(get_sleep_log_by_date_range())
+    fitbit_auth = FitbitAuthorization()
+    fitbit_auth.request_authorization()
