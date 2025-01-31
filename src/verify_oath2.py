@@ -20,10 +20,10 @@ from keys import CLIENT_ID, CLIENT_SECRET
 from test_values import REFRESH_TOKEN, ACCESS_TOKEN
 
 
-AUTH_REQ_PARAMS = "AUTHORIZATION_REQUEST_PARAMETERS"
-AUTH_RESP_PARAMS = "AUTHORIZATION_RESPONSE"
-TOKEN_REQ_PARAMS = "TOKEN_REQUEST_PARAMETERS"
-TOKEN_RESP_PARAMS = "TOKEN_RESPONSE_PARAMETERS"
+AUTH_REQ = "AUTHORIZATION_REQUEST_PARAMETERS"
+AUTH_RESP = "AUTHORIZATION_RESPONSE"
+TOKEN_REQ = "TOKEN_REQUEST_PARAMETERS"
+TOKEN_RESP = "TOKEN_RESPONSE_PARAMETERS"
 
 
 def sha256hash(value: str) -> str:
@@ -40,7 +40,34 @@ def create_random_str(len: int) -> str:
 
 
 @dataclasses.dataclass
-class AuthData:
+class AuthorizationRequestParameters:
+    client_id: str
+    code_challenge: str
+    state: str
+    redirect_uri: str
+    scope: list
+    code_challenge_method: str = "S256"
+    response_type: str = "code"
+
+    def __post_init__(self):
+        pass
+
+    def __str__(self) -> str:
+        scope_str = "+".join(self.scope)
+        params_list = [
+            f"response_type={self.response_type}",
+            f"client_id={self.client_id}",
+            f"scope={scope_str}",
+            f"code_challenge={self.code_challenge}",
+            f"code_challenge_method={self.code_challenge_method}",
+            f"state={self.state}",
+            f"redirect_uri={create_encoded_url(self.redirect_uri)}",
+        ]
+        return "&".join(params_list)
+
+
+@dataclasses.dataclass
+class TokenRequestParameters:
     client_id: str
     code_verifier: str  # PKCE Code Verifier
     redirect_uri: str
@@ -96,18 +123,24 @@ def main():
     print(f"state = {state}")
 
     my_http_server = MyHttpServer(q=q)
-    redirect_uri = create_encoded_url(my_http_server.address)
 
     # Start http server
     my_http_server.start_server()
 
-    url = f"https://www.fitbit.com/oauth2/authorize?response_type=code&client_id={CLIENT_ID}&scope=sleep&code_challenge={pkce.code_challenge}&code_challenge_method=S256&state={state}&redirect_uri={redirect_uri}"
-    print(f"Open {url}\n")
+    auth_req_params = AuthorizationRequestParameters(
+        client_id=CLIENT_ID,
+        code_challenge=pkce.code_challenge,
+        scope=["sleep", "activity"],
+        state=state,
+        redirect_uri=my_http_server.address,
+    )
+    AUTH_URL = f"https://www.fitbit.com/oauth2/authorize?{auth_req_params}"
+    print(f"Open {AUTH_URL}\n")
 
     for i in range(20):
         print(f"\rtime = {i+1}", end="")
         if not q.empty():  # Check queue
-            code_and_state = q.get()
+            auth_resp = q.get()  # {"code": code, "state": state}
             print()
             my_http_server.stop_server(sleep_time=1)
             break
@@ -115,28 +148,27 @@ def main():
     else:
         print()
         my_http_server.stop_server(sleep_time=1)
-        return False
+        return None
 
-    config = configparser.ConfigParser()
-    redirected_code = code_and_state["code"]
-    redirected_state = code_and_state["state"]
-    if state != redirected_state:
-        print(f"state error: redirected_state = {redirected_state}")
-        return False
+    if auth_req_params.state != auth_resp["state"]:
+        print(f"state error: redirected_state = {auth_resp["state"]}")
+        return None
 
-    auth_data = AuthData(
-        client_id=CLIENT_ID,
+    token_req_params = TokenRequestParameters(
+        client_id=auth_req_params.client_id,
         code_verifier=pkce.code_verifier,
-        redirect_uri=my_http_server.address,
-        code=redirected_code,
+        redirect_uri=auth_req_params.redirect_uri,
+        code=auth_resp["code"],
     )
 
-    config[TOKEN_REQ_PARAMS] = dataclasses.asdict(auth_data)
+    # record token request parameters
+    config = configparser.ConfigParser()
+    config["TOKEN_REQUEST_PARAMETERS"] = dataclasses.asdict(token_req_params)
     with AUTH_DATA_FILENAME.open("w", encoding="utf-8", newline="\n") as f:
         config.write(f)
 
     if input("Continue? [y](y/n):").lower() not in ["", "y"]:
-        return False
+        return None
     get_tokens()
 
     return True
@@ -145,7 +177,7 @@ def main():
 def get_tokens():
     config = configparser.ConfigParser()
     config.read(AUTH_DATA_FILENAME)
-    auth_data = dict(config[TOKEN_REQ_PARAMS])
+    auth_data = dict(config["TOKEN_REQUEST_PARAMETERS"])
 
     client_id_and_secret = f"{auth_data["client_id"]}:{CLIENT_SECRET}"
     basic_token = base64.b64encode(client_id_and_secret.encode()).decode()
