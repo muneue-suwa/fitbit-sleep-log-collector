@@ -3,9 +3,11 @@
     "files.trimFinalNewlines": true,
     "files.trimTrailingWhitespace": true,
     "cSpell.words": [
-        "FIBIT",
+        "fitbit",
+        "FITBIT",
         "PTRN",
-        "pycache"
+        "pycache",
+        "unixtime"
     ],
     "[python]": {
         "editor.formatOnSave": true,
