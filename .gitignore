@@ -10,7 +10,7 @@ src/test_keys.py
 src/test_values.py
 
 # Authorization data
-**/.auth_data.ini
+**/.*.ini
 
 # Output files
 **/output.json

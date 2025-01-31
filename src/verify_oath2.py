@@ -18,6 +18,12 @@ from keys import CLIENT_ID, CLIENT_SECRET
 from test_values import REFRESH_TOKEN, ACCESS_TOKEN
 
 
+AUTH_REQ_PARAMS = "AUTHORIZATION_REQUEST_PARAMETERS"
+AUTH_RESP_PARAMS = "AUTHORIZATION_RESPONSE"
+TOKEN_REQ_PARAMS = "TOKEN_REQUEST_PARAMETERS"
+TOKEN_RESP_PARAMS = "TOKEN_RESPONSE_PARAMETERS"
+
+
 def sha256hash(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).digest()
 
@@ -56,6 +62,23 @@ class ProofKeyForCodeExchange:
 
 def create_encoded_url(url: str) -> str:
     return urllib.parse.quote(url, safe="")
+
+
+class Authorization:
+    def __init__(self):
+        pass
+
+    def generate_pkce(self):
+        pass
+
+    def request_authorization(self):
+        pass
+
+    def request_token_using_auth_code(self):
+        pass
+
+    def request_token_using_refresh_code(self):
+        pass
 
 
 def main():
