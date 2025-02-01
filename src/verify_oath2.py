@@ -173,6 +173,12 @@ class FitbitAuthorization:
             state=state,
             redirect_uri=self.app_info.redirect_url,
         )
+        # record authorization request parameters
+        self.config["AUTHORIZATION_REQUEST"] = dataclasses.asdict(
+            auth_req_params,
+        )
+        self.save_config_file()
+
         AUTH_URL = f"https://www.fitbit.com/oauth2/authorize?{auth_req_params}"
         print(f"Open {AUTH_URL}\n")
 
@@ -192,6 +198,10 @@ class FitbitAuthorization:
         if auth_req_params.state != auth_resp["state"]:
             print(f"state error: redirected_state = {auth_resp["state"]}")
             return None
+
+        # record authorization response parameters
+        self.config["AUTHORIZATION_RESPONSE"] = auth_resp
+        self.save_config_file()
 
         token_req_params = TokenRequestFromCodeParameters(
             client_id=auth_req_params.client_id,
