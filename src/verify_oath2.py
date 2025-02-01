@@ -184,14 +184,12 @@ class FitbitAuthorization:
     def request_token_using_auth_code(
         self,
         token_req_params: TokenRequestParameters | None = None,
-    ) -> dict[str, str]:
+    ) -> True:
         if token_req_params is None:
-            config = configparser.ConfigParser()
-            config.read(AUTH_DATA_FILENAME)
-            if "TOKEN_REQUEST_PARAMETERS" not in config:
+            if "TOKEN_REQUEST_PARAMETERS" not in self.config:
                 print(f"No TOKEN_REQUEST_PARAMETERS in {AUTH_DATA_FILENAME}")
                 return False
-            auth_data = dict(config["TOKEN_REQUEST_PARAMETERS"])
+            auth_data = dict(self.config["TOKEN_REQUEST_PARAMETERS"])
         else:
             auth_data = dataclasses.asdict(token_req_params)
 
@@ -211,15 +209,44 @@ class FitbitAuthorization:
             print(response.status_code)
             print(response.text)  # str
 
-        token_resp = json.loads(response.text)
-        self.save_token_response(token_resp, requested_datetime)
-        return token_resp
+        self.save_token_response(response.text, requested_datetime)
+        return True
+
+    def request_token_using_refresh_code(self):
+        if "TOKEN_RESPONSE_PARAMETERS" not in self.config:
+            print(f"No TOKEN_RESPONSE_PARAMETERS in {AUTH_DATA_FILENAME}")
+            return False
+        existing_token_resp = dict(self.config["TOKEN_RESPONSE_PARAMETERS"])
+
+        auth_data = {
+            "grant_type": "refresh_token",
+            "client_id": self.app_info.client_id,
+            "refresh_token": existing_token_resp["refresh_token"],
+        }
+
+        requested_datetime = datetime.now()
+        response = requests.post(
+            "https://api.fitbit.com/oauth2/token",
+            data=auth_data,
+            headers={
+                "Authorization": f"Basic {self.app_info.basic_token}",
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+        )
+
+        if self.is_debug:
+            print(response.status_code)
+            print(response.text)  # str
+
+        self.save_token_response(response.text, requested_datetime)
+        return True
 
     def save_token_response(
         self,
-        token_resp: dict[str, str],
+        token_resp_text: str,
         requested_datetime: datetime,
     ):
+        token_resp = json.loads(token_resp_text)
         self.config["TOKEN_RESPONSE_PARAMETERS"] = token_resp
 
         requested_unixtime = requested_datetime.timestamp()
@@ -235,37 +262,9 @@ class FitbitAuthorization:
 
         return True
 
-    def request_token_using_refresh_code(self):
-        pass
-
     def save_config_file(self):
         with AUTH_DATA_FILENAME.open("w", encoding="utf-8", newline="\n") as f:
             self.config.write(f)
-
-
-def get_tokens_from_refresh_token():
-    config = configparser.ConfigParser()
-    config.read(AUTH_DATA_FILENAME)
-    auth_data = {
-        "grant_type": "refresh_token",
-        "client_id": CLIENT_ID,
-        "refresh_token": REFRESH_TOKEN,
-    }
-
-    client_id_and_secret = f"{auth_data["client_id"]}:{CLIENT_SECRET}"
-    basic_token = base64.b64encode(client_id_and_secret.encode()).decode()
-    print(basic_token)
-
-    response = requests.post(
-        "https://api.fitbit.com/oauth2/token",
-        data=auth_data,
-        headers={
-            "Authorization": f"Basic {basic_token}",
-            "Content-Type": "application/x-www-form-urlencoded",
-        },
-    )
-    print(response.status_code)
-    print(response.text)  # str
 
 
 def get_sleep_log_by_date_range():
@@ -291,4 +290,5 @@ def get_sleep_log_by_date_range():
 
 if __name__ == "__main__":
     fitbit_auth = FitbitAuthorization(is_debug=True)
-    fitbit_auth.request_authorization()
+    # fitbit_auth.request_authorization()
+    fitbit_auth.request_token_using_refresh_code()
