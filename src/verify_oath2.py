@@ -17,7 +17,6 @@ import requests
 from httpserver import MyHttpServer
 from settings import AUTH_DATA_FILENAME
 from keys import CLIENT_ID, CLIENT_SECRET, REDIRECT_URL
-from test_values import REFRESH_TOKEN, ACCESS_TOKEN
 
 
 AUTH_REQ = "AUTHORIZATION_REQUEST_PARAMETERS"
@@ -80,25 +79,27 @@ class AuthorizationRequestParameters:
 
 
 @dataclasses.dataclass
-class TokenRequestFromCodeParameters:
+class TokenRequestParameters:
     client_id: str
-    code_verifier: str  # PKCE Code Verifier
-    redirect_uri: str
-    code: str
-    grant_type: str = "authorization_code"
-
-    def __post_init__(self):
-        pass
+    grant_type: str = dataclasses.field(init=False)
 
 
 @dataclasses.dataclass
-class TokenRequestFromRefreshTokenParameters:
-    client_id: str
-    refresh_token: str
-    grant_type: str = "refresh_token"
+class TokenRequestFromCodeParameters(TokenRequestParameters):
+    code_verifier: str  # PKCE code verifier
+    redirect_uri: str
+    code: str  # authorization code
 
     def __post_init__(self):
-        pass
+        self.grant_type = "authorization_code"
+
+
+@dataclasses.dataclass
+class TokenRequestFromRefreshTokenParameters(TokenRequestParameters):
+    refresh_token: str
+
+    def __post_init__(self):
+        self.grant_type = "refresh_token"
 
 
 @dataclasses.dataclass
@@ -127,7 +128,28 @@ class FitbitAuthorization:
         self.config.read(AUTH_DATA_FILENAME)
         self.is_debug = is_debug
 
-    def request_authorization(self):
+    def get_access_token(self) -> str | None:
+        if "TOKEN_INFORMATION" in self.config:
+            token_info = self.config["TOKEN_INFORMATION"]
+            now = datetime.now().timestamp()
+            if now > float(token_info["expiration_unixtime"]):
+                # has invalid token
+                pass
+            elif token := self.config["TOKEN_RESPONSE_PARAMETERS"]["access_token"]:
+                return token
+
+        if "TOKEN_REQUEST_FROM_REFRESH_CODE_PARAMETERS" in self.config:
+            # has refresh token
+            req_params = self.create_token_req_from_refresh_token_params()
+            token = self.request_token_common(req_params)
+        else:
+            # request token newly
+            req_params = self.request_authorization()
+            token = self.request_token_common(req_params)
+
+        return token
+
+    def request_authorization(self) -> TokenRequestFromCodeParameters | None:
         q = queue.Queue(1)
 
         # generate PKCE, Proof Key for Code Exchange
@@ -184,46 +206,29 @@ class FitbitAuthorization:
         )
         self.save_config_file()
 
-        if input("Continue? [y](y/n):").lower() not in ["", "y"]:
-            return False
+        if self.is_debug:
+            # For debug
+            debug_message = "[DEBUG] request token? [y](y/n):"
+            if input(debug_message).lower() in ["", "y"]:
+                return None
+            token = self.request_token_common(token_req_params)
+            print(f"token = {token}")
 
-        result = self.request_token_using_auth_code(token_req_params)
+        return token_req_params
 
-        return result
-
-    def request_token_using_auth_code(
+    def create_token_req_from_code_params(
         self,
-        token_req_params: TokenRequestFromCodeParameters | None = None,
-    ) -> True:
+    ) -> TokenRequestFromCodeParameters:
         PARAM_NAME = "TOKEN_REQUEST_FROM_CODE_PARAMETERS"
-        if token_req_params is None:
-            if PARAM_NAME not in self.config:
-                print(f"No {PARAM_NAME} in {AUTH_DATA_FILENAME}")
-                return False
-            auth_data = dict(self.config[PARAM_NAME])
-        else:
-            auth_data = dataclasses.asdict(token_req_params)
+        if PARAM_NAME not in self.config:
+            print(f"No {PARAM_NAME} in {AUTH_DATA_FILENAME}")
+            return False
+        params = dict(self.config[PARAM_NAME])
+        return TokenRequestFromCodeParameters(**params)
 
-        if self.is_debug:
-            print(self.app_info.basic_token)
-
-        requested_datetime = datetime.now()
-        response = requests.post(
-            "https://api.fitbit.com/oauth2/token",
-            data=auth_data,
-            headers={
-                "Authorization": f"Basic {self.app_info.basic_token}",
-                "Content-Type": "application/x-www-form-urlencoded",
-            },
-        )
-        if self.is_debug:
-            print(response.status_code)
-            print(response.text)  # str
-
-        self.save_token_response(response.text, requested_datetime)
-        return True
-
-    def request_token_using_refresh_code(self):
+    def create_token_req_from_refresh_token_params(
+        self,
+    ) -> TokenRequestFromRefreshTokenParameters:
         if "TOKEN_RESPONSE_PARAMETERS" not in self.config:
             print(f"No TOKEN_RESPONSE_PARAMETERS in {AUTH_DATA_FILENAME}")
             return False
@@ -233,34 +238,47 @@ class FitbitAuthorization:
             client_id=self.app_info.client_id,
             refresh_token=existing_token_resp["refresh_token"],
         )
-        auth_data = dataclasses.asdict(token_request_params)
         PARAM_NAME = "TOKEN_REQUEST_FROM_REFRESH_CODE_PARAMETERS"
         self.config[PARAM_NAME] = dataclasses.asdict(token_request_params)
         self.save_config_file()
 
+        return token_request_params
+
+    def request_token_common(
+        self,
+        token_request_params: TokenRequestParameters,
+    ) -> str:
+        # get current datetime
         requested_datetime = datetime.now()
+        # send post to Fitbit web api
         response = requests.post(
             "https://api.fitbit.com/oauth2/token",
-            data=auth_data,
+            data=dataclasses.asdict(token_request_params),
             headers={
                 "Authorization": f"Basic {self.app_info.basic_token}",
                 "Content-Type": "application/x-www-form-urlencoded",
             },
         )
 
+        if response.status_code != 200:
+            # error
+            return ""
+
         if self.is_debug:
             print(response.status_code)
             print(response.text)  # str
 
-        self.save_token_response(response.text, requested_datetime)
-        return True
+        token_resp = json.loads(response.text)
+        self.save_token_response(token_resp, requested_datetime)
+
+        return token_resp["access_token"]
 
     def save_token_response(
         self,
-        token_resp_text: str,
+        token_resp: dict[str, str],
         requested_datetime: datetime,
-    ):
-        token_resp = json.loads(token_resp_text)
+    ) -> None:
+
         self.config["TOKEN_RESPONSE_PARAMETERS"] = token_resp
 
         requested_unixtime = requested_datetime.timestamp()
@@ -274,14 +292,12 @@ class FitbitAuthorization:
         self.config["TOKEN_INFORMATION"] = token_info
         self.save_config_file()
 
-        return True
-
-    def save_config_file(self):
+    def save_config_file(self) -> None:
         with AUTH_DATA_FILENAME.open("w", encoding="utf-8", newline="\n") as f:
             self.config.write(f)
 
 
-def get_sleep_log_by_date_range():
+def get_sleep_log_by_date_range(access_token):
     """
     curl -X GET "https://api.fitbit.com/1.2/user/-/sleep/date/2020-01-01/2020-01-05.json" \
         -H "accept: application/json" \
@@ -293,7 +309,7 @@ def get_sleep_log_by_date_range():
     response = requests.get(
         f"https://api.fitbit.com/1.2/user/-/sleep/date/{start_date:%Y-%m-%d}/{end_date:%Y-%m-%d}.json",
         headers={
-            "Authorization": f"Bearer {ACCESS_TOKEN}",
+            "Authorization": f"Bearer {access_token}",
             "Accept": "application/json",
         },
     )
@@ -305,4 +321,6 @@ def get_sleep_log_by_date_range():
 if __name__ == "__main__":
     fitbit_auth = FitbitAuthorization(is_debug=True)
     # fitbit_auth.request_authorization()
-    fitbit_auth.request_token_using_refresh_code()
+    access_token = fitbit_auth.get_access_token()
+    print(access_token)
+    # get_sleep_log_by_date_range(access_token)
