@@ -19,10 +19,10 @@ from settings import AUTH_DATA_FILENAME
 from keys import CLIENT_ID, CLIENT_SECRET, REDIRECT_URL
 
 
-AUTH_REQ = "AUTHORIZATION_REQUEST_PARAMETERS"
+AUTH_REQ = "AUTHORIZATION_REQUEST"
 AUTH_RESP = "AUTHORIZATION_RESPONSE"
-TOKEN_REQ = "TOKEN_REQUEST_PARAMETERS"
-TOKEN_RESP = "TOKEN_RESPONSE_PARAMETERS"
+TOKEN_REQ = "TOKEN_REQUEST"
+TOKEN_RESP = "TOKEN_RESPONSE"
 
 
 def sha256hash(value: str) -> str:
@@ -135,10 +135,10 @@ class FitbitAuthorization:
             if now > float(token_info["expiration_unixtime"]):
                 # has invalid token
                 pass
-            elif token := self.config["TOKEN_RESPONSE_PARAMETERS"]["access_token"]:
+            elif token := self.config["TOKEN_RESPONSE"]["access_token"]:
                 return token
 
-        if "TOKEN_REQUEST_FROM_REFRESH_CODE_PARAMETERS" in self.config:
+        if "TOKEN_RESPONSE" in self.config:
             # has refresh token
             req_params = self.create_token_req_from_refresh_token_params()
             token = self.request_token_common(req_params)
@@ -201,16 +201,16 @@ class FitbitAuthorization:
         )
 
         # record token request parameters
-        self.config["TOKEN_REQUEST_FROM_CODE_PARAMETERS"] = dataclasses.asdict(
+        self.config["TOKEN_REQUEST_FROM_CODE"] = dataclasses.asdict(
             token_req_params,
         )
         self.save_config_file()
 
         if self.is_debug:
             # For debug
-            debug_message = "[DEBUG] request token? [y](y/n):"
-            if input(debug_message).lower() in ["", "y"]:
-                return None
+            # debug_message = "[DEBUG] request token? [y](y/n):"
+            # if input(debug_message).lower() not in ["", "y"]:
+            #     return None
             token = self.request_token_common(token_req_params)
             print(f"token = {token}")
 
@@ -219,7 +219,7 @@ class FitbitAuthorization:
     def create_token_req_from_code_params(
         self,
     ) -> TokenRequestFromCodeParameters:
-        PARAM_NAME = "TOKEN_REQUEST_FROM_CODE_PARAMETERS"
+        PARAM_NAME = "TOKEN_REQUEST_FROM_CODE"
         if PARAM_NAME not in self.config:
             print(f"No {PARAM_NAME} in {AUTH_DATA_FILENAME}")
             return False
@@ -229,16 +229,16 @@ class FitbitAuthorization:
     def create_token_req_from_refresh_token_params(
         self,
     ) -> TokenRequestFromRefreshTokenParameters:
-        if "TOKEN_RESPONSE_PARAMETERS" not in self.config:
-            print(f"No TOKEN_RESPONSE_PARAMETERS in {AUTH_DATA_FILENAME}")
+        if "TOKEN_RESPONSE" not in self.config:
+            print(f"No TOKEN_RESPONSE in {AUTH_DATA_FILENAME}")
             return False
-        existing_token_resp = dict(self.config["TOKEN_RESPONSE_PARAMETERS"])
+        existing_token_resp = dict(self.config["TOKEN_RESPONSE"])
 
         token_request_params = TokenRequestFromRefreshTokenParameters(
             client_id=self.app_info.client_id,
             refresh_token=existing_token_resp["refresh_token"],
         )
-        PARAM_NAME = "TOKEN_REQUEST_FROM_REFRESH_CODE_PARAMETERS"
+        PARAM_NAME = "TOKEN_REQUEST_FROM_REFRESH_CODE"
         self.config[PARAM_NAME] = dataclasses.asdict(token_request_params)
         self.save_config_file()
 
@@ -248,6 +248,9 @@ class FitbitAuthorization:
         self,
         token_request_params: TokenRequestParameters,
     ) -> str:
+        message = "request token? [y](y/n):"
+        if input(message).lower() not in ["", "y"]:
+            return ""
         # get current datetime
         requested_datetime = datetime.now()
         # send post to Fitbit web api
@@ -279,7 +282,7 @@ class FitbitAuthorization:
         requested_datetime: datetime,
     ) -> None:
 
-        self.config["TOKEN_RESPONSE_PARAMETERS"] = token_resp
+        self.config["TOKEN_RESPONSE"] = token_resp
 
         requested_unixtime = requested_datetime.timestamp()
         expiration_unixtime = requested_unixtime + token_resp["expires_in"]
