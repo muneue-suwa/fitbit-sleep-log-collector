@@ -80,12 +80,22 @@ class AuthorizationRequestParameters:
 
 
 @dataclasses.dataclass
-class TokenRequestParameters:
+class TokenRequestFromCodeParameters:
     client_id: str
     code_verifier: str  # PKCE Code Verifier
     redirect_uri: str
     code: str
     grant_type: str = "authorization_code"
+
+    def __post_init__(self):
+        pass
+
+
+@dataclasses.dataclass
+class TokenRequestFromRefreshTokenParameters:
+    client_id: str
+    refresh_token: str
+    grant_type: str = "refresh_token"
 
     def __post_init__(self):
         pass
@@ -161,7 +171,7 @@ class FitbitAuthorization:
             print(f"state error: redirected_state = {auth_resp["state"]}")
             return None
 
-        token_req_params = TokenRequestParameters(
+        token_req_params = TokenRequestFromCodeParameters(
             client_id=auth_req_params.client_id,
             code_verifier=pkce.code_verifier,
             redirect_uri=auth_req_params.redirect_uri,
@@ -169,7 +179,7 @@ class FitbitAuthorization:
         )
 
         # record token request parameters
-        self.config["TOKEN_REQUEST_PARAMETERS"] = dataclasses.asdict(
+        self.config["TOKEN_REQUEST_FROM_CODE_PARAMETERS"] = dataclasses.asdict(
             token_req_params,
         )
         self.save_config_file()
@@ -183,13 +193,14 @@ class FitbitAuthorization:
 
     def request_token_using_auth_code(
         self,
-        token_req_params: TokenRequestParameters | None = None,
+        token_req_params: TokenRequestFromCodeParameters | None = None,
     ) -> True:
+        PARAM_NAME = "TOKEN_REQUEST_FROM_CODE_PARAMETERS"
         if token_req_params is None:
-            if "TOKEN_REQUEST_PARAMETERS" not in self.config:
-                print(f"No TOKEN_REQUEST_PARAMETERS in {AUTH_DATA_FILENAME}")
+            if PARAM_NAME not in self.config:
+                print(f"No {PARAM_NAME} in {AUTH_DATA_FILENAME}")
                 return False
-            auth_data = dict(self.config["TOKEN_REQUEST_PARAMETERS"])
+            auth_data = dict(self.config[PARAM_NAME])
         else:
             auth_data = dataclasses.asdict(token_req_params)
 
@@ -218,11 +229,14 @@ class FitbitAuthorization:
             return False
         existing_token_resp = dict(self.config["TOKEN_RESPONSE_PARAMETERS"])
 
-        auth_data = {
-            "grant_type": "refresh_token",
-            "client_id": self.app_info.client_id,
-            "refresh_token": existing_token_resp["refresh_token"],
-        }
+        token_request_params = TokenRequestFromRefreshTokenParameters(
+            client_id=self.app_info.client_id,
+            refresh_token=existing_token_resp["refresh_token"],
+        )
+        auth_data = dataclasses.asdict(token_request_params)
+        PARAM_NAME = "TOKEN_REQUEST_FROM_REFRESH_CODE_PARAMETERS"
+        self.config[PARAM_NAME] = dataclasses.asdict(token_request_params)
+        self.save_config_file()
 
         requested_datetime = datetime.now()
         response = requests.post(
