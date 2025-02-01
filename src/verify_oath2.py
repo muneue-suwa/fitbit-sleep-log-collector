@@ -113,6 +113,8 @@ class FitbitAuthorization:
             client_secret=CLIENT_SECRET,
             redirect_url=REDIRECT_URL,
         )
+        self.config = configparser.ConfigParser()
+        self.config.read(AUTH_DATA_FILENAME)
         self.is_debug = is_debug
 
     def request_authorization(self):
@@ -135,7 +137,7 @@ class FitbitAuthorization:
         auth_req_params = AuthorizationRequestParameters(
             client_id=self.app_info.client_id,
             code_challenge=pkce.code_challenge,
-            scope=["sleep", "activity"],
+            scope=["sleep"],
             state=state,
             redirect_uri=self.app_info.redirect_url,
         )
@@ -167,13 +169,10 @@ class FitbitAuthorization:
         )
 
         # record token request parameters
-        config = configparser.ConfigParser()
-        config.read(AUTH_DATA_FILENAME)
-        config["TOKEN_REQUEST_PARAMETERS"] = dataclasses.asdict(
+        self.config["TOKEN_REQUEST_PARAMETERS"] = dataclasses.asdict(
             token_req_params,
         )
-        with AUTH_DATA_FILENAME.open("w", encoding="utf-8", newline="\n") as f:
-            config.write(f)
+        self.save_config_file()
 
         if input("Continue? [y](y/n):").lower() not in ["", "y"]:
             return False
@@ -185,7 +184,7 @@ class FitbitAuthorization:
     def request_token_using_auth_code(
         self,
         token_req_params: TokenRequestParameters | None = None,
-    ) -> bool:
+    ) -> dict[str, str]:
         if token_req_params is None:
             config = configparser.ConfigParser()
             config.read(AUTH_DATA_FILENAME)
@@ -199,6 +198,7 @@ class FitbitAuthorization:
         if self.is_debug:
             print(self.app_info.basic_token)
 
+        requested_datetime = datetime.now()
         response = requests.post(
             "https://api.fitbit.com/oauth2/token",
             data=auth_data,
@@ -212,16 +212,35 @@ class FitbitAuthorization:
             print(response.text)  # str
 
         token_resp = json.loads(response.text)
-        config = configparser.ConfigParser()
-        config.read(AUTH_DATA_FILENAME)
-        config["TOKEN_RESPONSE_PARAMETERS"] = token_resp
-        with AUTH_DATA_FILENAME.open("w", encoding="utf-8", newline="\n") as f:
-            config.write(f)
+        self.save_token_response(token_resp, requested_datetime)
+        return token_resp
+
+    def save_token_response(
+        self,
+        token_resp: dict[str, str],
+        requested_datetime: datetime,
+    ):
+        self.config["TOKEN_RESPONSE_PARAMETERS"] = token_resp
+
+        requested_unixtime = requested_datetime.timestamp()
+        expiration_unixtime = requested_unixtime + token_resp["expires_in"]
+        expiration_datetime = datetime.fromtimestamp(expiration_unixtime)
+        token_info = {
+            "requested_unixtime": requested_unixtime,
+            "expiration_unixtime": expiration_unixtime,
+            "expiration_local_datetime": expiration_datetime,
+        }
+        self.config["TOKEN_INFORMATION"] = token_info
+        self.save_config_file()
 
         return True
 
     def request_token_using_refresh_code(self):
         pass
+
+    def save_config_file(self):
+        with AUTH_DATA_FILENAME.open("w", encoding="utf-8", newline="\n") as f:
+            self.config.write(f)
 
 
 def get_tokens_from_refresh_token():
@@ -271,5 +290,5 @@ def get_sleep_log_by_date_range():
 
 
 if __name__ == "__main__":
-    fitbit_auth = FitbitAuthorization()
+    fitbit_auth = FitbitAuthorization(is_debug=True)
     fitbit_auth.request_authorization()
