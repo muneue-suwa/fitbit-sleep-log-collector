@@ -118,11 +118,17 @@ def create_encoded_url(url: str) -> str:
 
 
 class FitbitAuthorization:
-    def __init__(self, is_debug: bool = False):
+    def __init__(
+        self,
+        client_id: str,
+        client_secret: str,
+        redirect_url: str,
+        is_debug: bool = False,
+    ):
         self.app_info = FitbitApplicationInformation(
-            client_id=CLIENT_ID,
-            client_secret=CLIENT_SECRET,
-            redirect_url=REDIRECT_URL,
+            client_id=client_id,
+            client_secret=client_secret,
+            redirect_url=redirect_url,
         )
         self.config = configparser.ConfigParser()
         self.config.read(AUTH_DATA_FILENAME)
@@ -310,29 +316,13 @@ class FitbitAuthorization:
             self.config.write(f)
 
 
-def get_sleep_log_by_date_range(access_token):
-    """
-    curl -X GET "https://api.fitbit.com/1.2/user/-/sleep/date/2020-01-01/2020-01-05.json" \
-        -H "accept: application/json" \
-        -H "authorization: Bearer <access_token>"
-    """
-
-    start_date = datetime(2025, 1, 1)
-    end_date = datetime(2025, 1, 5)
-    response = requests.get(
-        f"https://api.fitbit.com/1.2/user/-/sleep/date/{start_date:%Y-%m-%d}/{end_date:%Y-%m-%d}.json",
-        headers={
-            "Authorization": f"Bearer {access_token}",
-            "Accept": "application/json",
-        },
-    )
-    print(response.status_code)
-    print(response.text)  # str
-    return json.loads(response.text)
-
-
 if __name__ == "__main__":
-    fitbit_auth = FitbitAuthorization(is_debug=True)
+    fitbit_auth = FitbitAuthorization(
+        client_id=CLIENT_ID,
+        client_secret=CLIENT_SECRET,
+        redirect_url=REDIRECT_URL,
+        is_debug=True,
+    )
     # fitbit_auth.request_authorization()
     access_token = fitbit_auth.get_access_token()
     print(access_token)
